@@ -2,49 +2,28 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, status
 from typing import List, Optional
 from .models import Book, BookCreate
-from .repositories import BookRepository
+# from .repositories import BookRepository
+from .postgres_repository import BookRepositoryPostgres
+import os
+from dotenv import load_dotenv
 
-# Создаем экземпляр репозитория
-book_repo = BookRepository("library_books.json")
+config = load_dotenv()
+print(os.getenv("DATABASE_URL"))
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# # Создаем экземпляр репозитория
+# book_repo = BookRepository("library_books.json")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Инициализация при запуске приложения"""
-    # Создаем тестовые данные, если их нет
-    if not book_repo.get_all_books():
-        # Создаем объекты BookCreate для тестовых данных
-        initial_books = [
-            BookCreate(
-                title="Война и мир",
-                author="Лев Толстой",
-                year=1869,
-                genre="Роман",
-                pages=1225,
-                available=True
-            ),
-            BookCreate(
-                title="Преступление и наказание",
-                author="Федор Достоевский",
-                year=1866,
-                genre="Роман",
-                pages=672,
-                available=True
-            ),
-            BookCreate(
-                title="1984",
-                author="Джордж Оруэлл",
-                year=1949,
-                genre="Антиутопия",
-                pages=328,
-                available=False
-            )
-        ]
-
-        # Добавляем книги через репозиторий
-        for book in initial_books:
-            book_repo.add_book(book)
+    repo = BookRepositoryPostgres(DATABASE_URL)
+    await repo.connect()
+    app.state.repo = repo
     yield
+    await repo.close()
 
 
 app = FastAPI(
@@ -61,12 +40,13 @@ def read_root():
 
 
 @app.get("/books", response_model=List[Book])
-def get_books(
+async def get_books(
         genre: Optional[str] = None,
         available: Optional[bool] = None
 ):
     """Получить список книг с фильтрацией"""
-    all_books = book_repo.get_all_books()
+    repo = app.state.repo
+    all_books = await repo.get_all_books()
 
     if genre:
         all_books = [b for b in all_books if b.genre.lower() == genre.lower()]
@@ -78,9 +58,10 @@ def get_books(
 
 
 @app.get("/books/{book_id}", response_model=Book)
-def get_book(book_id: int):
+async def get_book(book_id: int):
     """Получить информацию о конкретной книге"""
-    book = book_repo.get_book_by_id(book_id)
+    repo = app.state.repo
+    book = await repo.get_book_by_id(book_id)
     if not book:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -90,15 +71,17 @@ def get_book(book_id: int):
 
 
 @app.post("/books", response_model=Book, status_code=status.HTTP_201_CREATED)
-def add_book(book: BookCreate):
+async def add_book(book: BookCreate):
     """Добавить новую книгу в каталог"""
-    return book_repo.add_book(book)
+    repo = app.state.repo
+    return await repo.add_book(book)
 
 
 @app.put("/books/{book_id}", response_model=Book)
-def update_book(book_id: int, book_update: BookCreate):
+async def update_book(book_id: int, book_update: BookCreate):
     """Обновить информацию о книге"""
-    updated_book = book_repo.update_book(book_id, book_update)
+    repo = app.state.repo
+    updated_book = await repo.update_book(book_id, book_update)
     if not updated_book:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -108,9 +91,10 @@ def update_book(book_id: int, book_update: BookCreate):
 
 
 @app.delete("/books/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_book(book_id: int):
+async def delete_book(book_id: int):
     """Удалить книгу из каталога"""
-    if not book_repo.delete_book(book_id):
+    repo = app.state.repo
+    if not await repo.delete_book(book_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Книга с ID {book_id} не найдена"
