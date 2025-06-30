@@ -4,3 +4,4 @@ pydantic
 asyncpg
 python-dotenv
 aiohttp
+httpx
