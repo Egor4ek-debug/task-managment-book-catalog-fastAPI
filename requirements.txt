@@ -1,7 +1,0 @@
-fastapi
-uvicorn[standard]
-pydantic
-asyncpg
-python-dotenv
-aiohttp
-httpx

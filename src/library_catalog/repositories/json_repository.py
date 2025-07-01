@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from typing import List, Optional
+
 from ..core.base_repository import BookRepositoryBase
 from ..core.exceptions import RepositoryError
 from ..models.book import Book, BookCreate
@@ -35,7 +36,6 @@ class JsonRepository(BookRepositoryBase):
         data = await self._read_data()
         return [Book(**item) for item in data]
 
-
     async def get_book_by_id(self, book_id: int) -> Optional[Book]:
         data = await self._read_data()
         for item in data:
@@ -43,7 +43,7 @@ class JsonRepository(BookRepositoryBase):
                 return Book(**item)
         return None
 
-    async def add_book(self, book: BookCreate) -> Book:
+    async def add_book(self, book: BookCreate, skip_enrichment: bool = False) -> Book:
         book = await self._enrich_book_data(book, self.api_client)
         data = await self._read_data()
         new_id = max(item["id"] for item in data) + 1 if data else 1
@@ -52,7 +52,7 @@ class JsonRepository(BookRepositoryBase):
         await self._write_data(data)
         return new_book
 
-    async def update_book(self, book_id: int, book_update: BookCreate) -> Optional[Book]:
+    async def update_book(self, book_id: int, book_update: BookCreate, skip_enrichment: bool = False) -> Optional[Book]:
         data = await self._read_data()
         for i, item in enumerate(data):
             if item["id"] == book_id:

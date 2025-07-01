@@ -1,109 +1,182 @@
-import asyncpg
+import logging
 from typing import List, Optional
+
+from sqlalchemy import delete, NullPool
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.future import select
+from sqlalchemy.orm import sessionmaker
+
 from ..core.base_repository import BookRepositoryBase
-from ..core.exceptions import RepositoryError, BookNotFoundError
+from ..core.exceptions import RepositoryError
+from ..models.base import BookModel
 from ..models.book import Book, BookCreate
+
+logger = logging.getLogger(__name__)
 
 
 class PostgresRepository(BookRepositoryBase):
     def __init__(self, dsn: str):
         super().__init__()
         self.dsn = dsn
-        self.pool = None
+        self.engine = None
+        self.async_session = None
         self.api_client = None
 
     async def connect(self):
-        try:
-            self.pool = await asyncpg.create_pool(
-                dsn=self.dsn,
-                min_size=5,
-                max_size=20
-            )
-            await self._create_tables()
-        except Exception as e:
-            raise RepositoryError(f"Connection failed: {str(e)}") from e
-
-    async def _create_tables(self):
-        async with self.pool.acquire() as conn:
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS books (
-                    id SERIAL PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    author TEXT NOT NULL,
-                    year INTEGER NOT NULL,
-                    genre TEXT NOT NULL,
-                    pages INTEGER NOT NULL,
-                    available BOOLEAN NOT NULL DEFAULT TRUE,
-                    description TEXT,
-                    cover_url TEXT,
-                    rating FLOAT,
-                    isbn TEXT
+        """Инициализация движка и сессии SQLAlchemy"""
+        if self.engine is None:
+            try:
+                self.engine = create_async_engine(
+                    self.dsn,
+                    echo=False,
+                    future=True,
+                    poolclass=NullPool  # Используем пул соединений
                 )
-            ''')
 
+                # Создаем асинхронную сессию
+                self.async_session = sessionmaker(
+                    self.engine, expire_on_commit=False, class_=AsyncSession
+                )
+
+                # Создаем таблицы при необходимости
+                # async with self.engine.begin() as conn:
+                #     await conn.run_sync(Base.metadata.create_all)
+
+                logger.info("Postgres connection initialized with SQLAlchemy")
+            except Exception as e:
+                raise RepositoryError(f"Connection failed: {str(e)}") from e
+
+    async def ensure_connected(self):
+        """Гарантирует, что соединение инициализировано"""
+        if self.engine is None:
+            await self.connect()
+
+    async def _convert_to_pydantic(self, db_book: BookModel) -> Book:
+        """Конвертирует модель SQLAlchemy в модель Pydantic"""
+        return Book(
+            id=db_book.id,
+            title=db_book.title,
+            author=db_book.author,
+            year=db_book.year,
+            genre=db_book.genre,
+            pages=db_book.pages,
+            available=db_book.available,
+            description=db_book.description,
+            cover_url=db_book.cover_url,
+            rating=db_book.rating,
+            isbn=db_book.isbn
+        )
 
     async def get_all_books(self) -> List[Book]:
-        async with self.pool.acquire() as conn:
-            records = await conn.fetch("SELECT * FROM books")
-            return [Book(**dict(record)) for record in records]
+        await self.ensure_connected()
+        async with self.async_session() as session:
+            try:
+                result = await session.execute(select(BookModel))
+                books = []
+                for db_book in result.scalars():
+                    books.append(await self._convert_to_pydantic(db_book))
+                return books
+            except SQLAlchemyError as e:
+                logger.error(f"SQLAlchemy error: {str(e)}")
+                raise RepositoryError("Database error") from e
 
     async def get_book_by_id(self, book_id: int) -> Optional[Book]:
-        async with self.pool.acquire() as conn:
-            record = await conn.fetchrow(
-                "SELECT * FROM books WHERE id = $1", book_id
-            )
-            return Book(**dict(record)) if record else None
+        await self.ensure_connected()
+        async with self.async_session() as session:
+            try:
+                result = await session.execute(
+                    select(BookModel).where(BookModel.id == book_id))
+                db_book = result.scalar_one_or_none()
+                if db_book:
+                    return await self._convert_to_pydantic(db_book)
+                return None
+            except SQLAlchemyError as e:
+                logger.error(f"SQLAlchemy error: {str(e)}")
+                raise RepositoryError("Database error") from e
 
-    async def add_book(self, book: BookCreate) -> Book:
-        book = await self._enrich_book_data(book, self.api_client)
-        async with self.pool.acquire() as conn:
-            record = await conn.fetchrow(
-                """
-                INSERT INTO books (
-                    title, author, year, genre, pages, available, 
-                    description, cover_url, rating, isbn
-                ) 
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                RETURNING *
-                """,
-                book.title, book.author, book.year, book.genre, book.pages,
-                book.available, book.description, book.cover_url,
-                book.rating, book.isbn
-            )
-            return Book(**dict(record))
+    async def add_book(self, book: BookCreate, skip_enrichment: bool = False) -> Book:
+        if not skip_enrichment and self.api_client:
+            book = await self._enrich_book_data(book, self.api_client)
 
-    async def update_book(self, book_id: int, book_update: BookCreate) -> Optional[Book]:
-        book = await self._enrich_book_data(book_update, self.api_client)
-        async with self.pool.acquire() as conn:
-            record = await conn.fetchrow(
-                """
-                UPDATE books SET
-                    title = $1,
-                    author = $2,
-                    year = $3,
-                    genre = $4,
-                    pages = $5,
-                    available = $6,
-                    description = $7,
-                    cover_url = $8,
-                    rating = $9,
-                    isbn = $10
-                WHERE id = $11
-                RETURNING *
-                """,
-                book.title, book.author, book.year, book.genre, book.pages,
-                book.available, book.description, book.cover_url,
-                book.rating, book.isbn, book_id
-            )
-            return Book(**dict(record)) if record else None
+        await self.ensure_connected()
+        async with self.async_session() as session:
+            try:
+                # Создаем экземпляр модели SQLAlchemy
+                db_book = BookModel(
+                    title=book.title,
+                    author=book.author,
+                    year=book.year,
+                    genre=book.genre,
+                    pages=book.pages,
+                    available=book.available,
+                    description=book.description,
+                    cover_url=book.cover_url,
+                    rating=book.rating,
+                    isbn=book.isbn
+                )
+
+                session.add(db_book)
+                await session.commit()
+                await session.refresh(db_book)
+                return await self._convert_to_pydantic(db_book)
+            except SQLAlchemyError as e:
+                await session.rollback()
+                logger.error(f"SQLAlchemy error: {str(e)}")
+                raise RepositoryError("Error adding book") from e
+
+    async def update_book(self, book_id: int, book_update: BookCreate, skip_enrichment: bool = False) -> Optional[Book]:
+        if not skip_enrichment and self.api_client:
+            book_update = await self._enrich_book_data(book_update, self.api_client)
+
+        await self.ensure_connected()
+        async with self.async_session() as session:
+            try:
+                # Получаем книгу для обновления
+                result = await session.execute(
+                    select(BookModel).where(BookModel.id == book_id))
+                db_book = result.scalar_one_or_none()
+
+                if not db_book:
+                    return None
+
+                # Обновляем поля
+                db_book.title = book_update.title
+                db_book.author = book_update.author
+                db_book.year = book_update.year
+                db_book.genre = book_update.genre
+                db_book.pages = book_update.pages
+                db_book.available = book_update.available
+                db_book.description = book_update.description
+                db_book.cover_url = book_update.cover_url
+                db_book.rating = book_update.rating
+                db_book.isbn = book_update.isbn
+
+                await session.commit()
+                await session.refresh(db_book)
+                return await self._convert_to_pydantic(db_book)
+            except SQLAlchemyError as e:
+                await session.rollback()
+                logger.error(f"SQLAlchemy error: {str(e)}")
+                raise RepositoryError("Error updating book") from e
 
     async def delete_book(self, book_id: int) -> bool:
-        async with self.pool.acquire() as conn:
-            result = await conn.execute(
-                "DELETE FROM books WHERE id = $1", book_id
-            )
-            return result.split()[1] == '1'
+        await self.ensure_connected()
+        async with self.async_session() as session:
+            try:
+                result = await session.execute(
+                    delete(BookModel).where(BookModel.id == book_id))
+                await session.commit()
+                return result.rowcount > 0
+            except SQLAlchemyError as e:
+                await session.rollback()
+                logger.error(f"SQLAlchemy error: {str(e)}")
+                raise RepositoryError("Error deleting book") from e
 
     async def close(self):
-        if self.pool:
-            await self.pool.close()
+        """Закрытие соединения"""
+        if self.engine:
+            await self.engine.dispose()
+            self.engine = None
+            self.async_session = None
+            logger.info("Postgres connection closed")

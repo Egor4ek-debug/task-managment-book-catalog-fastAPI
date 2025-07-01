@@ -1,7 +1,10 @@
+import logging
 from abc import ABC, abstractmethod
 from typing import List, Optional
+
 from ..models.book import Book, BookCreate
-import logging
+
+
 class BookRepositoryBase(ABC):
     def __init__(self):
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -15,11 +18,11 @@ class BookRepositoryBase(ABC):
         pass
 
     @abstractmethod
-    async def add_book(self, book: BookCreate) -> Book:
+    async def add_book(self, book: BookCreate, skip_enrichment: bool = False) -> Book:
         pass
 
     @abstractmethod
-    async def update_book(self, book_id: int, book_update: BookCreate) -> Optional[Book]:
+    async def update_book(self, book_id: int, book_update: BookCreate, skip_enrichment: bool = False) -> Optional[Book]:
         pass
 
     @abstractmethod

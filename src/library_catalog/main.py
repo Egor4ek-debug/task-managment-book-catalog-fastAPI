@@ -1,55 +1,48 @@
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, Depends, status
 from starlette.responses import JSONResponse
 
-from .api_clients.openlibrary_client import OpenLibraryClient
+from .app_state import AppState
 from .config import Config
 from .core.exceptions import ApiClientError, RepositoryError
 from .core.logging import setup_logging
 from .models.book import Book, BookCreate
-from .repositories.in_memory_repository import InMemoryRepository
-from .repositories.json_repository import JsonRepository
-from .repositories.jsonbin_repository import JsonBinRepository
-from .repositories.postgres_repository import PostgresRepository
+from .services.book_services import BookService
 
 logger = setup_logging()
 config = Config()
+app_state = AppState()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    api_client = OpenLibraryClient()
+    """Контекст жизненного цикла приложения"""
+    # Инициализация состояния приложения
+    await app_state.initialize()
 
+    # Выполняем резервное копирование при запуске
     try:
-        if config.STORAGE_TYPE == "postgres":
-            repo = PostgresRepository(config.DATABASE_URL)
-            await repo.connect()
-        elif config.STORAGE_TYPE == "json":
-            repo = JsonRepository("books.json")
-        elif config.STORAGE_TYPE == "jsonbin":
-            repo = JsonBinRepository(config.JSONBIN_API_KEY, config.JSONBIN_BIN_ID)
-        else:
-            repo = InMemoryRepository()
+        from .repositories.json_repository import JsonRepository
+        backup_repo = JsonRepository("backup_books.json")
+        await app_state.book_service.backup_books(backup_repo)
+        logger.info("Initial backup completed successfully")
+    except Exception as e:
+        logger.error(f"Initial backup failed: {str(e)}")
 
-        repo.api_client = api_client
-        logger.info(f"Using {config.STORAGE_TYPE} storage")
-
-    except RepositoryError as e:
-        logger.error(f"Storage error: {str(e)}")
-        repo = InMemoryRepository()
-        repo.api_client = api_client
-        logger.warning("Fallback to in-memory storage")
-
-    app.state.repo = repo
     yield
 
-    if hasattr(repo, 'close'):
-        await repo.close()
+    # Завершение работы приложения
+    await app_state.shutdown()
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+# Функция для получения сервиса книг
+def get_book_service() -> BookService:
+    return app_state.book_service
 
 
 @app.exception_handler(RepositoryError)
@@ -68,7 +61,6 @@ async def handle_api_client_error(request, exc):
     )
 
 
-# Эндпоинты остаются без изменений
 @app.get("/")
 async def read_root():
     return {
@@ -83,94 +75,46 @@ async def read_root():
 async def get_books(
         genre: Optional[str] = None,
         available: Optional[bool] = None,
-        author: Optional[str] = None
+        author: Optional[str] = None,
+        book_service: BookService = Depends(get_book_service)
 ):
-    """
-    Получить список книг с возможностью фильтрации:
-
-    - **genre**: Фильтрация по жанру
-    - **available**: Фильтрация по доступности (true/false)
-    - **author**: Фильтрация по автору (частичное совпадение)
-    """
-    repo = app.state.repo
-    all_books = await repo.get_all_books()
-
-    # Применяем фильтры
-    if genre:
-        all_books = [b for b in all_books if b.genre and genre.lower() in b.genre.lower()]
-
-    if author:
-        all_books = [b for b in all_books if b.author and author.lower() in b.author.lower()]
-
-    if available is not None:
-        all_books = [b for b in all_books if b.available == available]
-
-    return all_books
+    return await book_service.get_all_books(genre, available, author)
 
 
 @app.get("/books/{book_id}", response_model=Book, summary="Получить книгу по ID")
-async def get_book(book_id: int):
-    """Получить детальную информацию о конкретной книге по её идентификатору"""
-    repo = app.state.repo
-    book = await repo.get_book_by_id(book_id)
-    if not book:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Книга с ID {book_id} не найдена"
-        )
-    return book
+async def get_book(
+        book_id: int,
+        book_service: BookService = Depends(get_book_service)
+):
+    return await book_service.get_book_by_id(book_id)
 
 
 @app.post("/books",
           response_model=Book,
           status_code=status.HTTP_201_CREATED,
-          summary="Добавить новую книгу",
-          description="Добавляет новую книгу в каталог. При указании ISBN автоматически дополняет данные из Open Library API.")
-async def add_book(book: BookCreate):
-    """
-    Добавить новую книгу в каталог:
-
-    При указании ISBN система автоматически попытается дополнить информацию:
-    - Описание книги
-    - URL обложки
-    - Рейтинг
-
-    Поля, заполненные пользователем, имеют приоритет над данными из Open Library.
-    """
-    repo = app.state.repo
-    try:
-        return await repo.add_book(book)
-    except Exception as e:
-        logger.error(f"Error adding book: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Ошибка при добавлении книги"
-        )
+          summary="Добавить новую книгу")
+async def add_book(
+        book: BookCreate,
+        book_service: BookService = Depends(get_book_service)
+):
+    return await book_service.add_book(book)
 
 
 @app.put("/books/{book_id}", response_model=Book, summary="Обновить информацию о книге")
-async def update_book(book_id: int, book_update: BookCreate):
-    """Обновить информацию о существующей книге"""
-    repo = app.state.repo
-    updated_book = await repo.update_book(book_id, book_update)
-    if not updated_book:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Книга с ID {book_id} не найдена"
-        )
-    return updated_book
+async def update_book(
+        book_id: int,
+        book_update: BookCreate,
+        book_service: BookService = Depends(get_book_service)
+):
+    return await book_service.update_book(book_id, book_update)
 
 
 @app.delete("/books/{book_id}",
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Удалить книгу из каталога")
-async def delete_book(book_id: int):
-    """Удалить книгу из каталога по её идентификатору"""
-    repo = app.state.repo
-    success = await repo.delete_book(book_id)
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Книга с ID {book_id} не найдена"
-        )
+async def delete_book(
+        book_id: int,
+        book_service: BookService = Depends(get_book_service)
+):
+    await book_service.delete_book(book_id)
     return

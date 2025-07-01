@@ -1,10 +1,12 @@
 import json
-import logging
 from typing import List, Optional
+
 from httpx import AsyncClient
+
 from ..core.base_repository import BookRepositoryBase
 from ..core.exceptions import RepositoryError
 from ..models.book import Book, BookCreate
+
 
 class JsonBinRepository(BookRepositoryBase):
     BASE_URL = "https://api.jsonbin.io/v3/b"
@@ -52,7 +54,7 @@ class JsonBinRepository(BookRepositoryBase):
                 return Book(**item)
         return None
 
-    async def add_book(self, book: BookCreate) -> Book:
+    async def add_book(self, book: BookCreate, skip_enrichment: bool = False) -> Book:
         book = await self._enrich_book_data(book, self.api_client)
         data = await self._fetch_data()
         new_id = max(item["id"] for item in data) + 1 if data else 1
@@ -61,7 +63,7 @@ class JsonBinRepository(BookRepositoryBase):
         await self._update_data(data)
         return new_book
 
-    async def update_book(self, book_id: int, book_update: BookCreate) -> Optional[Book]:
+    async def update_book(self, book_id: int, book_update: BookCreate, skip_enrichment: bool = False) -> Optional[Book]:
         data = await self._fetch_data()
         for i, item in enumerate(data):
             if item["id"] == book_id:

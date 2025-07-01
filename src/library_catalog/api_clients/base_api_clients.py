@@ -1,8 +1,11 @@
-import httpx
 import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any
-from .exceptions import ApiClientError
+
+import httpx
+
+from ..core.exceptions import ApiClientError
+
 
 class BaseApiClient(ABC):
     def __init__(self, base_url: str, timeout: float = 10.0):
@@ -14,8 +17,8 @@ class BaseApiClient(ABC):
         url = f"{self.base_url}{endpoint}"
         try:
             async with httpx.AsyncClient(
-                timeout=self.timeout,
-                follow_redirects=True
+                    timeout=self.timeout,
+                    follow_redirects=True
             ) as client:
                 response = await client.request(
                     method,

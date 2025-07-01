@@ -1,5 +1,7 @@
-from pydantic import BaseModel, Field
 from typing import Optional
+
+from pydantic import BaseModel, Field
+
 
 class BookBase(BaseModel):
     title: str
@@ -13,11 +15,13 @@ class BookBase(BaseModel):
     rating: Optional[float] = Field(None, ge=0, le=5)
     isbn: Optional[str] = None
 
+    class Config:
+        orm_mode = True
+
+
 class BookCreate(BookBase):
     pass
 
+
 class Book(BookBase):
     id: int
-
-    class Config:
-        orm_mode = True

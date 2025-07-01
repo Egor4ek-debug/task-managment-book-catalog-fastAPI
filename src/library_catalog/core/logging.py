@@ -1,6 +1,7 @@
 import logging
 import os
 
+
 def setup_logging():
     logging.basicConfig(
         level=os.getenv("LOG_LEVEL", "INFO"),

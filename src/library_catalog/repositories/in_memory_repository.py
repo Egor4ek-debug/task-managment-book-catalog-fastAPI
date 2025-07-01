@@ -1,4 +1,5 @@
 from typing import List, Optional
+
 from ..core.base_repository import BookRepositoryBase
 from ..models.book import Book, BookCreate
 
@@ -16,7 +17,7 @@ class InMemoryRepository(BookRepositoryBase):
     async def get_book_by_id(self, book_id: int) -> Optional[Book]:
         return next((b for b in self.books if b.id == book_id), None)
 
-    async def add_book(self, book: BookCreate) -> Book:
+    async def add_book(self, book: BookCreate, skip_enrichment: bool = False) -> Book:
         book = await self._enrich_book_data(book, self.api_client)
         new_book = Book(
             id=self.next_id,
@@ -26,8 +27,7 @@ class InMemoryRepository(BookRepositoryBase):
         self.next_id += 1
         return new_book
 
-
-    async def update_book(self, book_id: int, book_update: BookCreate) -> Optional[Book]:
+    async def update_book(self, book_id: int, book_update: BookCreate, skip_enrichment: bool = False) -> Optional[Book]:
         for i, b in enumerate(self.books):
             if b.id == book_id:
                 updated_book = await self._enrich_book_data(book_update, self.api_client)

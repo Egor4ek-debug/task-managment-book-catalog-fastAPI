@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "library_catalog"
+version = "0.1.0"
+description = "Library Catalog API"
+authors = ["Your Name <you@example.com>"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+fastapi = "^0.109.0"
+uvicorn = { extras = ["standard"], version = "^0.25.0" }
+pydantic = "^1.10.13"
+python-dotenv = "^1.0.0"
+httpx = "^0.25.0"
+
+asyncpg = "^0.30.0"
+alembic = "^1.16.2"
+sqlalchemy = "^2.0.41"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

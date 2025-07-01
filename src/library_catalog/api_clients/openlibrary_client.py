@@ -1,6 +1,6 @@
 from typing import Dict, Any
 
-from ..core.base_api_clients import BaseApiClient
+from ..api_clients.base_api_clients import BaseApiClient
 
 
 class OpenLibraryClient(BaseApiClient):
@@ -28,7 +28,8 @@ class OpenLibraryClient(BaseApiClient):
 
     def _extract_work_id(self, book_data: Dict) -> str:
         works = book_data.get("works", [])
-        return works[0]["key"].split("/")[-1] if works else None
+        # Добавлена проверка на пустой список
+        return works[0]["key"].split("/")[-1] if works and len(works) > 0 else None
 
     def _extract_description(self, data: Dict) -> str:
         description = data.get("description")
