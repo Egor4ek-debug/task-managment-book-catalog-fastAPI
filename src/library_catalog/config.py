@@ -11,3 +11,5 @@ class Config:
     JSONBIN_API_KEY = os.getenv("JSONBIN_API_KEY")
     JSONBIN_BIN_ID = os.getenv("JSONBIN_BIN_ID")
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+    BASE_URL_OPEN_LIBRARY = os.getenv("BASE_URL_OPEN_LIBRARY")
+    BASE_URL_JSONBIN = os.getenv("BASE_URL_JSONBIN")

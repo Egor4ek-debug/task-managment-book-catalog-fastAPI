@@ -1,10 +1,11 @@
 from typing import Dict, Any
-
+from ..config import Config
 from ..api_clients.base_api_clients import BaseApiClient
 
+config = Config()
 
 class OpenLibraryClient(BaseApiClient):
-    BASE_URL = "https://openlibrary.org"
+    BASE_URL = config.BASE_URL_OPEN_LIBRARY
 
     def __init__(self):
         super().__init__(self.BASE_URL)

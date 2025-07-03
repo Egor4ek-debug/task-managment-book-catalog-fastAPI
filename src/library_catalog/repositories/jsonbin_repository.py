@@ -2,14 +2,15 @@ import json
 from typing import List, Optional
 
 from httpx import AsyncClient
-
+from ..config import Config
 from ..core.base_repository import BookRepositoryBase
 from ..core.exceptions import RepositoryError
 from ..models.book import Book, BookCreate
 
+config = Config()
 
 class JsonBinRepository(BookRepositoryBase):
-    BASE_URL = "https://api.jsonbin.io/v3/b"
+    BASE_URL = config.BASE_URL_JSONBIN
 
     def __init__(self, api_key: str, bin_id: str):
         super().__init__()
