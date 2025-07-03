@@ -1,11 +1,10 @@
 import logging
 from typing import List, Optional
 
-from sqlalchemy import delete, NullPool
+from sqlalchemy import delete
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import sessionmaker
 
 from ..core.base_repository import BookRepositoryBase
 from ..core.exceptions import RepositoryError
@@ -15,35 +14,33 @@ from ..models.book import Book, BookCreate
 logger = logging.getLogger(__name__)
 
 
-class PostgresRepository(BookRepositoryBase):
+class BaseSQLAlchemyRepository:
+    """Базовый класс для репозиториев SQLAlchemy"""
+
     def __init__(self, dsn: str):
-        super().__init__()
         self.dsn = dsn
         self.engine = None
         self.async_session = None
-        self.api_client = None
 
     async def connect(self):
         """Инициализация движка и сессии SQLAlchemy"""
         if self.engine is None:
             try:
+                from sqlalchemy.ext.asyncio import create_async_engine
+                from sqlalchemy.orm import sessionmaker
+
                 self.engine = create_async_engine(
                     self.dsn,
                     echo=False,
                     future=True,
-                    poolclass=NullPool  # Используем пул соединений
+                    poolclass=None  # Используем пул по умолчанию
                 )
 
                 # Создаем асинхронную сессию
                 self.async_session = sessionmaker(
                     self.engine, expire_on_commit=False, class_=AsyncSession
                 )
-
-                # Создаем таблицы при необходимости
-                # async with self.engine.begin() as conn:
-                #     await conn.run_sync(Base.metadata.create_all)
-
-                logger.info("Postgres connection initialized with SQLAlchemy")
+                logger.info("SQLAlchemy connection initialized")
             except Exception as e:
                 raise RepositoryError(f"Connection failed: {str(e)}") from e
 
@@ -51,6 +48,21 @@ class PostgresRepository(BookRepositoryBase):
         """Гарантирует, что соединение инициализировано"""
         if self.engine is None:
             await self.connect()
+
+    async def close(self):
+        """Закрытие соединения"""
+        if self.engine:
+            await self.engine.dispose()
+            self.engine = None
+            self.async_session = None
+            logger.info("SQLAlchemy connection closed")
+
+
+class PostgresRepository(BookRepositoryBase, BaseSQLAlchemyRepository):
+    def __init__(self, dsn: str):
+        BookRepositoryBase.__init__(self)
+        BaseSQLAlchemyRepository.__init__(self, dsn)
+        self.api_client = None
 
     async def _convert_to_pydantic(self, db_book: BookModel) -> Book:
         """Конвертирует модель SQLAlchemy в модель Pydantic"""
@@ -172,11 +184,3 @@ class PostgresRepository(BookRepositoryBase):
                 await session.rollback()
                 logger.error(f"SQLAlchemy error: {str(e)}")
                 raise RepositoryError("Error deleting book") from e
-
-    async def close(self):
-        """Закрытие соединения"""
-        if self.engine:
-            await self.engine.dispose()
-            self.engine = None
-            self.async_session = None
-            logger.info("Postgres connection closed")

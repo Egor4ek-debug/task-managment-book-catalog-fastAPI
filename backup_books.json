@@ -167,5 +167,44 @@
     "rating": null,
     "isbn": null,
     "id": 13
+  },
+  {
+    "title": "Война и мир",
+    "author": "Лев Толстой",
+    "year": 1869,
+    "genre": "Роман",
+    "pages": 1225,
+    "available": true,
+    "description": null,
+    "cover_url": null,
+    "rating": null,
+    "isbn": null,
+    "id": 14
+  },
+  {
+    "title": "Преступление и наказание",
+    "author": "Федор Достоевский",
+    "year": 1866,
+    "genre": "Роман",
+    "pages": 672,
+    "available": true,
+    "description": null,
+    "cover_url": null,
+    "rating": null,
+    "isbn": null,
+    "id": 15
+  },
+  {
+    "title": "1984",
+    "author": "Джордж Оруэлл",
+    "year": 1949,
+    "genre": "Антиутопия",
+    "pages": 328,
+    "available": false,
+    "description": null,
+    "cover_url": null,
+    "rating": null,
+    "isbn": null,
+    "id": 16
   }
 ]
