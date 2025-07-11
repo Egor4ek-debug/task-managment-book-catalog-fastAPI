@@ -112,9 +112,6 @@ async def update_book(
 @app.delete("/books/{book_id}",
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Удалить книгу из каталога")
-async def delete_book(
-        book_id: int,
-        book_service: BookService = Depends(get_book_service)
-):
+async def delete_book(book_id: int, book_service: BookService = Depends(get_book_service)):
     await book_service.delete_book(book_id)
     return
