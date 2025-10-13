@@ -1,0 +1,46 @@
+# Существующие правила
+library_books.json
+.env
+*.env
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.python-version
+
+.pypoetry/
+.pytest_cache/
+
+.vscode/
+.idea/
+*.iml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+.cache/
+
+# Новые правила для Poetry
+poetry.lock
+dist/
+.venv/
+
+# Для Alembic
+alembic.ini
+
+# Файлы операционных систем
+.DS_Store
+Thumbs.db
+
+# Файлы зависимостей и сборки
+*.egg-info/
+build/
+
+# Тестовые и отладочные файлы
+.coverage
+htmlcov/
+*.log
+*.sqlite
